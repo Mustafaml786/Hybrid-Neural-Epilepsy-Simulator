@@ -1,0 +1,6 @@
+{
+  "type": "pulse",
+  "amplitude": 0.5,
+  "start": 100,
+  "duration": 200
+}

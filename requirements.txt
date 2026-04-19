@@ -1,0 +1,21 @@
+# Core Dependencies for xspecies-neuro
+# A Computational Approach to Modeling Epileptic Brain Behavior Using Hybrid Neural Simulation
+
+# Neural Simulator
+brian2>=2.10.0
+
+# Data Processing
+numpy>=2.0
+pandas>=3.0
+
+# Visualization
+matplotlib>=3.10
+
+# Configuration
+pyyaml>=6.0
+
+# Web UI
+streamlit>=1.30
+
+# Optional but recommended
+watchdog>=6.0

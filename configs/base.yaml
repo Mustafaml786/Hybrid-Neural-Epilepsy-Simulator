@@ -1,0 +1,7 @@
+simulation:
+  duration: 1000       # ms
+  dt: 0.025            # ms
+model_dir: "third_party/hippocampus"   # optional; override if you have local model
+worm_model_dir: "third_party/c302"
+stimulus:
+  file: "configs/stimuli/pulse.json"
