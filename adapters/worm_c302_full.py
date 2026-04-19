@@ -242,12 +242,10 @@ class WormC302FullAdapter:
                             if spike_counts.get(source, 0) == 0:
                                 weight_modifications[source][neuron] -= stdp_strength * 0.1
                     
-                    # Record spike time as list
+                    # Record spike time (keep ALL spikes for accurate counting)
                     if neuron not in self.spike_history:
                         self.spike_history[neuron] = []
                     self.spike_history[neuron].append(current_time)
-                    if len(self.spike_history[neuron]) > 10:
-                        self.spike_history[neuron] = self.spike_history[neuron][-10:]
                     
                     activity = threshold * 0.2  # Reset after spike
                 
@@ -263,6 +261,7 @@ class WormC302FullAdapter:
         
         self.results = {
             "spikes": spike_counts,
+            "spike_history": self.spike_history,
             "mean_activity": mean_activities,
             "total_spikes": total_spikes,
             "num_spikes": total_spikes,
@@ -280,7 +279,8 @@ class WormC302FullAdapter:
         if not self.results:
             return {}
         
-        spikes = {n: [float(c)] for n, c in self.results.get("spikes", {}).items()}
+        spike_history = self.results.get("spike_history", {})
+        spikes = {n: [float(t) for t in times] for n, times in spike_history.items() if times}
         
         return {
             "spikes": spikes,

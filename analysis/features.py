@@ -14,11 +14,21 @@ def compute_summary_metrics(output):
     if "hipp_activity_mean_mV" in output:
         avg = output.get("hipp_activity_mean_mV")
         metrics["hipp_activity_avg"] = avg
-        metrics["hipp_burst_count"] = detect_bursts_from_avg(avg) if avg else 0
+        
+        burst_count = output.get("burst_count", 0)
+        if burst_count == 0 and avg:
+            burst_count = detect_bursts_from_avg(avg)
+        metrics["hipp_burst_count"] = burst_count
+        
         metrics["num_spikes"] = output.get("num_spikes", 0)
         metrics["n_neurons"] = output.get("n_neurons", 0)
         metrics["active_neurons"] = output.get("active_neurons", 0)
         metrics["mean_activity"] = output.get("mean_activity", 0)
+        
+        if "voltage_max_mV" in output:
+            metrics["voltage_max_mV"] = output["voltage_max_mV"]
+        if "voltage_std_mV" in output:
+            metrics["voltage_std_mV"] = output["voltage_std_mV"]
     # Handle legacy format: {"hipp_activity": [...]} 
     elif "hipp_activity" in output:
         voltages = output.get("hipp_activity", [])
@@ -28,11 +38,14 @@ def compute_summary_metrics(output):
     # Handle worm format: {"spikes": {...}}
     elif "spikes" in output:
         spikes = output["spikes"]
+        spike_counts = []
         for neuron, vals in spikes.items():
+            count = len(vals) if vals else 0
+            spike_counts.append(count)
             metrics[f"{neuron}_avg_spike"] = np.mean(vals) if vals else None
-            metrics[f"{neuron}_spike_count"] = len([v for v in vals if v > 0])
-        metrics["mean_activity"] = output.get("mean_activity", 0)
-        metrics["mean_act_val"] = output.get("mean_act_val", 0)
+            metrics[f"{neuron}_spike_count"] = count
+        metrics["mean_activity"] = spike_counts
+        metrics["mean_act_val"] = np.mean(spike_counts) if spike_counts else 0
         metrics["num_spikes"] = output.get("num_spikes", 0)
         metrics["n_neurons"] = output.get("n_neurons", len(spikes))
     return metrics
@@ -40,10 +53,16 @@ def compute_summary_metrics(output):
 
 def detect_bursts_from_avg(avg_voltage):
     """
-    Detect bursts from average voltage - if avg is above -50mV, likely bursting.
+    Detect bursts from average voltage.
+    Epileptic shows depolarization block around -30mV or high variance.
     """
-    if avg_voltage and avg_voltage > -50:
-        return 1
+    if avg_voltage:
+        if avg_voltage > -40:
+            return 3
+        elif avg_voltage > -50:
+            return 2
+        elif avg_voltage > -60:
+            return 1
     return 0
 
 def detect_bursts(voltage_trace, threshold=-50, min_duration=3):

@@ -166,17 +166,20 @@ def plot_statistics_panel(metrics, model_name, raw_data=None):
         num_spikes = metrics.get('num_spikes', 0)
         avg_voltage = metrics.get('hipp_activity_avg', 0)
         
-        # Calculate from raw data if available
-        voltages = None
-        if raw_data and raw_data.get('voltage_mean_mV'):
+        v_std = metrics.get('voltage_std_mV')
+        v_max = metrics.get('voltage_max_mV')
+        
+        if not v_std and raw_data and raw_data.get('voltage_mean_mV'):
             voltages = np.array(raw_data['voltage_mean_mV'])
             v_std = np.std(voltages)
-            v_min = np.min(voltages)
             v_max = np.max(voltages)
-        else:
+        
+        if not v_std:
             v_std = 0
-            v_min = avg_voltage - 3
-            v_max = avg_voltage + 3
+        if not v_max:
+            v_max = avg_voltage + 20
+        
+        v_min = avg_voltage - v_std * 2 if v_std else avg_voltage - 5
         
         # Display statistics grid
         col1, col2, col3, col4 = st.columns(4)
@@ -202,11 +205,11 @@ def plot_statistics_panel(metrics, model_name, raw_data=None):
     
     else:
         # Worm statistics
-        spike_data = metrics.get('mean_activity', {})
+        spike_data = metrics.get('mean_activity', [])
         if not spike_data:
-            spike_data = {}
+            spike_data = []
         
-        values = list(spike_data.values()) if spike_data else [0]
+        values = list(spike_data) if spike_data else [0]
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -239,7 +242,9 @@ def plot_metrics_gauge(metrics, model_name):
     else:
         # Handle worm data - extract mean activity value
         mean_val = metrics.get('mean_activity') or metrics.get('mean_act_val', 0)
-        if isinstance(mean_val, dict):
+        if isinstance(mean_val, list):
+            mean_val = np.mean(mean_val) if mean_val else 0
+        elif isinstance(mean_val, dict):
             mean_val = sum(mean_val.values()) / len(mean_val) if mean_val else 0
         with col1:
             st.metric("Mean Activity", f"{mean_val:.2f}")
