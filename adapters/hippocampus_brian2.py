@@ -25,7 +25,7 @@ from pathlib import Path
 from brian2 import (
     NeuronGroup, Synapses, SpikeMonitor, StateMonitor,
     TimedArray, ms, mV, nS, pF, pA, nA, run, Network,
-    defaultclock, prefs, volt, amp
+    defaultclock, prefs, volt, amp, uF, mS
 )
 
 prefs.codegen.target = "numpy"
@@ -62,39 +62,40 @@ class HippocampusBrian2Adapter:
         - tau_ref: Refractory period ms (default: 2)
     """
     
-    # Default parameters for healthy and epileptic modes
+    # Default parameters for healthy and epileptic modes (scientifically correct HH values)
+    # Based on standard HH model parameters from literature
     DEFAULT_PARAMS = {
         "Healthy": {
-            "gNa": 20.0,      # mS/cm²
-            "gK": 10.0,       # mS/cm²
-            "gL": 0.1,        # mS/cm²
-            "ENa": 55.0,       # mV
-            "EK": -90.0,       # mV
-            "EL": -65.0,       # mV (realistic resting ~-65mV)
-            "Cm": 1.0,         # µF/cm²
-            "tau_syn": 5.0,    # ms
+            "gNa": 50.0,      # mS/cm² - Na+ conductance (hippocampal ~50)
+            "gK": 15.0,        # mS/cm² - K+ conductance (hippocampal ~15)
+            "gL": 0.2,         # mS/cm² - Leak conductance (standard ~0.3)
+            "ENa": 50.0,       # mV - Na+ reversal (standard +50)
+            "EK": -90.0,        # mV - K+ reversal (standard -77, hippocampal -90)
+            "EL": -65.0,        # mV - Leak reversal (resting potential)
+            "Cm": 1.0,         # µF/cm² - Membrane capacitance (standard)
+            "tau_syn": 5.0,    # ms - Synaptic time constant
             "connection_prob": 0.15,
-            "Vt": -55.0,       # mV (realistic threshold)
-            "Vreset": -70.0,   # mV (realistic AHP ~-70mV)
-            "tau_ref": 3.0,    # ms (longer refractory = sparse firing)
-            "synaptic_weight": 100.0,  # pA (weaker for healthy)
-            "noise_std": 5.0,  # pA - stochastic noise
+            "Vt": -55.0,       # mV - Threshold (emergent in HH, kept for monitoring)
+            "Vreset": -75.0,   # mV - AHP potential (emergent in HH)
+            "tau_ref": 2.0,     # ms - Refractory period
+            "synaptic_weight": 100.0,  # pA - Synaptic weight
+            "noise_std": 5.0,   # pA - Stochastic noise
         },
         "Epileptic": {
-            "gNa": 40.0,       # Increased (2x) - hyperexcitability
-            "gK": 15.0,        # Moderately increased
-            "gL": 0.5,         # Increased (5x) - leakier membrane
-            "ENa": 55.0,        # Same
-            "EK": -90.0,        # Same
-            "EL": -30.0,        # DEPOLARIZED BLOCK (-30mV)
-            "Cm": 1.0,          # Same
-            "tau_syn": 15.0,   # Increased (3x) - prolonged synaptic events
+            "gNa": 80.0,       # mS/cm² - Increased (1.6x) - hyperexcitability
+            "gK": 22.0,        # mS/cm² - Moderately increased
+            "gL": 0.5,         # mS/cm² - Increased leak (depolarization)
+            "ENa": 50.0,       # mV - Na+ reversal
+            "EK": -90.0,       # mV - K+ reversal
+            "EL": -50.0,       # mV - Depolarized resting (epileptic)
+            "Cm": 1.0,         # µF/cm² - Same
+            "tau_syn": 10.0,   # ms - Prolonged synaptic events
             "connection_prob": 0.25,  # Increased connectivity
-            "Vt": -40.0,       # Lower threshold (+15mV)
-            "Vreset": -40.0,   # Depolarized block reset
-            "tau_ref": 1.0,    # Shorter refractory (more firing)
-            "synaptic_weight": 600.0,  # Stronger synapses
-            "noise_std": 15.0,  # More noise in epileptic
+            "Vt": -45.0,       # mV - Lower threshold
+            "Vreset": -60.0,   # mV - Reduced AHP
+            "tau_ref": 1.0,    # ms - Shorter refractory
+            "synaptic_weight": 400.0,  # pA - Stronger synapses
+            "noise_std": 12.0,  # More noise in epileptic
         }
     }
     
@@ -199,10 +200,10 @@ class HippocampusBrian2Adapter:
             # Use stored parameters from config
             p = self.params
             
-            Cm = p["Cm"] * pF
-            gL = p["gL"] * nS
-            gNa = p["gNa"] * nS
-            gK = p["gK"] * nS
+            Cm = p["Cm"] * uF
+            gL = p["gL"] * mS
+            gNa = p["gNa"] * mS
+            gK = p["gK"] * mS
             EL = p["EL"] * mV
             ENa = p["ENa"] * mV
             EK = p["EK"] * mV
@@ -218,37 +219,51 @@ class HippocampusBrian2Adapter:
 
             self.stim_timed_array = self._make_stim_timedarray(stim_cfg)
 
-            # Enhanced leaky integrate-and-fire with noise and variability
-            # Includes stochastic noise for realistic firing patterns
+# Hodgkin-Huxley model with Na+/K+ channels
+            # Standard HH equations with gating variables m (Na+ activation), h (Na+ inactivation), n (K+ activation)
             noise_std = p.get("noise_std", 5.0) * pA
             
             eqs = """
-            dv/dt = (gL*(EL - v) + I_syn + I_ext + I_noise) / Cm : volt (unless refractory)
+            dv/dt = (gNa*m**3*h*(ENa - v) + gK*n**4*(EK - v) + gL*(EL - v) + I_syn + I_ext) / Cm : volt
+            dm/dt = alpham * (1 - m) - betam * m : 1
+            dn/dt = alphan * (1 - n) - betan * n : 1
+            dh/dt = alphah * (1 - h) - betah * h : 1
+
+            # Standard HH alpha/beta rates (dimensionless, in ms^-1)
+            alpham = 0.1 * (v/mV + 40) / (1 - exp(-(v/mV + 40) / 10)) / ms : hertz
+            betam = 4 * exp(-(v/mV + 65) / 18) / ms : hertz
+            alphan = 0.01 * (v/mV + 55) / (1 - exp(-(v/mV + 55) / 10)) / ms : hertz
+            betan = 0.125 * exp(-(v/mV + 65) / 80) / ms : hertz
+            alphah = 0.07 * exp(-(v/mV + 65) / 20) / ms : hertz
+            betah = 1 / (1 + exp(-(v/mV + 35) / 10)) / ms : hertz
+
             I_syn : amp
             I_ext : amp
-            I_noise : amp
             """
 
             self.neurons = NeuronGroup(
                 N, eqs,
-                threshold="v > VT",
-                reset="v = Vreset",
-                refractory=tau_ref,
+                threshold="v > -10*mV",
+                reset="",
                 method="euler",
                 namespace={
                     'Cm': Cm, 'gL': gL, 'gNa': gNa, 'gK': gK,
                     'EL': EL, 'ENa': ENa, 'EK': EK,
-                    'VT': VT, 'Vreset': Vreset,
-                    'tau_ref': tau_ref,
-                    'stimulus': self.stim_timed_array
+                    'stimulus': self.stim_timed_array,
+                    'ms': ms,
                 }
             )
 
-            # Initialize with slight variability for each neuron (heterogeneity)
+            # Initialize gating variables to steady-state values at rest
+            # m ~ 0.05, n ~ 0.6, h ~ 0.6 at rest (-65mV)
+            self.neurons.m = 0.05
+            self.neurons.n = 0.6
+            self.neurons.h = 0.6
+            
+            # Initialize membrane potential with slight heterogeneity
             self.neurons.v = EL + np.random.uniform(-5, 5, N) * mV
             self.neurons.I_syn = 0 * pA
             self.neurons.I_ext = 0 * pA
-            self.neurons.I_noise = np.random.uniform(-noise_std, noise_std, N) * pA
 
             # Synaptic connections with configurable probability
             # Add 30% variability to weights for realistic heterogeneous network
@@ -382,11 +397,11 @@ class HippocampusBrian2Adapter:
             voltage_matrix = np.array(self.results.get("voltage_matrix_mV", []))
             spike_trains = self.results.get("spike_trains_ms", {})
             
-            voltage_matrix_with_spikes, reconstructed_v_max = self._reconstruct_spike_peaks(voltage_matrix, spike_trains)
-            
+            # HH model produces natural spikes - no reconstruction needed
+            # Use raw voltage matrix directly
             avg = float(np.mean(mean_trace)) if mean_trace.size else None
-            v_max = float(np.max(voltage_matrix_with_spikes)) if voltage_matrix_with_spikes.size else None
-            v_std = float(np.std(voltage_matrix_with_spikes)) if voltage_matrix_with_spikes.size else None
+            v_max = float(np.max(voltage_matrix)) if voltage_matrix.size else None
+            v_std = float(np.std(voltage_matrix)) if voltage_matrix.size else None
             
             spike_counts = self.results.get("spike_counts", [])
             active_neurons = sum(1 for c in spike_counts if c > 0) if spike_counts else 0
