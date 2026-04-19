@@ -7,6 +7,9 @@ Uses conductance-based model with configurable parameters.
 import os
 import sys
 
+# Import seizure detection
+from analysis.seizure_detection import detect_seizure, classify_state
+
 # Fix signal for Streamlit/multithreaded environments before importing brian2
 if 'streamlit' in sys.modules:
     import signal
@@ -409,6 +412,15 @@ class HippocampusBrian2Adapter:
             n_neurons = getattr(self, '_n_neurons', len(spike_counts)) if spike_counts else 50
             burst_count = self._count_bursts(spike_trains)
             
+            # Seizure detection
+            duration_ms = float(self.sim_duration / ms) if self.sim_duration else 500.0
+            seizure_result = detect_seizure(
+                spike_trains=spike_trains,
+                voltage_trace=mean_trace.tolist() if hasattr(mean_trace, 'tolist') else list(mean_trace),
+                duration_ms=duration_ms,
+                model_type="hippocampus"
+            )
+            
             return {
                 "hipp_activity_mean_mV": avg,
                 "hipp_activity_avg": avg,
@@ -420,7 +432,12 @@ class HippocampusBrian2Adapter:
                 "active_neurons": active_neurons,
                 "mean_activity": mean_activity,
                 "spike_counts": spike_counts,
-                "mode": self.mode
+                "mode": self.mode,
+                # Seizure detection results
+                "seizure_detected": seizure_result.get("seizure_detected", 0),
+                "seizure_probability": seizure_result.get("seizure_probability", 0.0),
+                "seizure_severity": seizure_result.get("seizure_severity", "none"),
+                "seizure_biomarkers": seizure_result.get("biomarkers", {})
             }
         except Exception as e:
             print(f"[HippocampusBrian2Adapter] get_output error: {e}")

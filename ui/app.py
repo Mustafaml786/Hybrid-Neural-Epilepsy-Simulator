@@ -253,6 +253,59 @@ def plot_metrics_gauge(metrics, model_name):
         with col3:
             st.metric("Active Neurons", metrics.get('n_neurons', 0))
 
+
+def plot_seizure_detection(metrics):
+    """Display seizure detection results."""
+    seizure_detected = metrics.get('seizure_detected', 0)
+    seizure_prob = metrics.get('seizure_probability', 0.0)
+    seizure_severity = metrics.get('seizure_severity', 'none')
+    biomarkers = metrics.get('seizure_biomarkers', {})
+    
+    st.markdown("---")
+    st.markdown("### 🩺 Seizure Detection")
+    
+    # Status indicator with color coding
+    if seizure_detected:
+        status_color = "🔴"
+        status_text = "SEIZURE DETECTED"
+    elif seizure_prob >= 0.2:
+        status_color = "🟡"
+        status_text = "ELEVATED RISK"
+    else:
+        status_color = "🟢"
+        status_text = "NORMAL"
+    
+    # Display probability with progress bar
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Status", f"{status_color} {status_text}")
+    with col2:
+        st.metric("Probability", f"{seizure_prob:.1%}")
+    
+    # Progress bar
+    seizure_bar = st.progress(seizure_prob)
+    
+    # Severity badge
+    severity_colors = {
+        "none": "🟢",
+        "mild": "🟡", 
+        "moderate": "🟠",
+        "severe": "����"
+    }
+    severity_icon = severity_colors.get(seizure_severity, "⚪")
+    st.markdown(f"**Severity:** {severity_icon} {seizure_severity.upper()}")
+    
+    # Show biomarkers in expander
+    if biomarkers:
+        with st.expander("📊 View Biomarkers"):
+            bm_col1, bm_col2 = st.columns(2)
+            with bm_col1:
+                st.metric("Spike Rate", f"{biomarkers.get('spike_rate_hz', 0):.1f} Hz")
+                st.metric("Synchrony", f"{biomarkers.get('synchrony_index', 0):.2f}")
+            with bm_col2:
+                st.metric("Variance", f"{biomarkers.get('variance_ratio', 0):.2f}")
+                st.metric("Burst", f"{biomarkers.get('burst_intensity', 0):.2f}")
+
 # -----------------------
 # Main UI Layout
 # -----------------------
@@ -334,6 +387,9 @@ if run_btn:
             # Display metrics nicely
             st.markdown("### 📊 Results Summary")
             plot_metrics_gauge(metrics, model_select)
+            
+            # Display seizure detection
+            plot_seizure_detection(summary)
             
             # Visualization
             st.markdown("### 📈 Visualizations")

@@ -12,7 +12,7 @@ Parameters (configurable via config dict):
     - weight_scale: Synaptic weight scaling (default: 0.15)
     - plasticity_enabled: Enable STDP (default: False)
     - stdp_window: STDP timing window ms (default: 20)
-    - stdp_strength: STDP learning rate (default: 0.1)
+    - stdp_strength: STDP learning rate ms (default: 0.1)
 """
 
 import os
@@ -21,6 +21,9 @@ import json
 import numpy as np
 from collections import defaultdict
 from pathlib import Path
+
+# Import seizure detection
+from analysis.seizure_detection import detect_seizure
 
 
 class WormC302FullAdapter:
@@ -282,13 +285,32 @@ class WormC302FullAdapter:
         spike_history = self.results.get("spike_history", {})
         spikes = {n: [float(t) for t in times] for n, times in spike_history.items() if times}
         
+        # For seizure detection, convert spike history to spike trains format
+        spike_trains = spikes
+        
+        # Get duration
+        duration_ms = float(self.results.get("duration", 500.0))
+        
+        # Seizure detection for worm model
+        seizure_result = detect_seizure(
+            spike_trains=spike_trains,
+            voltage_trace=[],
+            duration_ms=duration_ms,
+            model_type="worm"
+        )
+        
         return {
             "spikes": spikes,
             "mean_activity": self.results.get("mean_activity", {}),
             "mean_act_val": float(np.mean(list(self.results.get("mean_activity", {}).values()))) if self.results.get("mean_activity") else 0,
             "num_spikes": self.results.get("num_spikes", 0),
             "mode": self.mode,
-            "n_neurons": self.results.get("n_neurons", 0)
+            "n_neurons": self.results.get("n_neurons", 0),
+            # Seizure detection results
+            "seizure_detected": seizure_result.get("seizure_detected", 0),
+            "seizure_probability": seizure_result.get("seizure_probability", 0.0),
+            "seizure_severity": seizure_result.get("seizure_severity", "none"),
+            "seizure_biomarkers": seizure_result.get("biomarkers", {})
         }
     
     def save_results(self, outdir="worm_runs"):
