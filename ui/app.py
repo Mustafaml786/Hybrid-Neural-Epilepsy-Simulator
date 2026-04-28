@@ -663,8 +663,9 @@ if run_btn:
             st.markdown("### 📊 Results Summary")
             plot_metrics_gauge(metrics, model_select)
             
-            # Display seizure detection
-            plot_seizure_detection(summary)
+            # Display seizure detection (Hippocampus only - not applicable for C302 worm model)
+            if model_select == "Hippocampus":
+                plot_seizure_detection(summary)
             
             # Visualization
             st.markdown("### 📈 Visualizations")
